@@ -13,7 +13,14 @@ public class PlayerMovement : MonoBehaviour
     #region Serialized Fields
     [Header("Speed Values")]
     [SerializeField]
-    private float speed;
+    private float minRunSpeed;
+
+    [SerializeField]
+    [Range(0,1)]
+    private float accelerationRate;
+
+    [SerializeField]
+    private float maxRunSpeed;
 
     [SerializeField]
     private float jumpSpeed;
@@ -22,14 +29,19 @@ public class PlayerMovement : MonoBehaviour
     private float doubleJumpSpeed;
 
     [SerializeField]
-    private float maxSpeed;
-
-    [SerializeField]
     private float maxJumpSpeed;
 
     [SerializeField]
     [Tooltip("Used for LAC movement, is the horizontal movement speed when the player is airborne")]
+    [Range(0,1)]
     private float airSpeed;
+
+    [SerializeField]
+    [Range(0,1)]
+    private float clingGravityScale;
+
+    [SerializeField]
+    private float wallJumpHorizontalSpeed;
 
     [Header("Dash Values")]
     [SerializeField]
@@ -49,7 +61,16 @@ public class PlayerMovement : MonoBehaviour
     private MovementType playerMovementType;
 
     [SerializeField]
+    private WallCheck leftCheck, rightCheck;
+
+    [SerializeField]
     private bool canDoubleJump = false;
+
+    [SerializeField]
+    private static int maxJumps = 2;
+
+    [SerializeField]
+    private float wallJumpRecoveryTime;
 
     [SerializeField]
     private PhysicsMaterial2D Moving;
@@ -64,8 +85,9 @@ public class PlayerMovement : MonoBehaviour
 
     private DashType dashType;
 
-    private bool isInAir, CanMove = true, CanDash = true, FacingRight = true;
-    private int Jumps = 2;
+    private bool IsInAir, IsClingingLeft, IsClingingRight, CanMoveLeft = true, CanMoveRight = true, CanMove = true, CanDash = true, FacingRight = true;
+    private int Jumps = maxJumps;
+    private float SpeedGain = 0;
 
     private void Awake()
     {
@@ -76,11 +98,21 @@ public class PlayerMovement : MonoBehaviour
 
     void Update()
     {
-        isInAir = groundCheck.IsInAir();
-        if(!isInAir)
+        IsInAir = groundCheck.IsInAir();
+        IsClingingLeft = leftCheck.IsClinging() && Input.GetAxis("Horizontal") < 0;
+        IsClingingRight = rightCheck.IsClinging() && Input.GetAxis("Horizontal") > 0;
+        if(!IsInAir)
         {
-            Jumps = 2;
+            Jumps = maxJumps;
         }
+        if (Input.GetAxisRaw("Horizontal") == 0 || IsClingingLeft || IsClingingRight)
+            SpeedGain = 0;
+        else if (SpeedGain == 1)
+        {
+
+        }
+        else
+            SpeedGain += accelerationRate;
         HandleDirection();
         if(CanMove)
         {
@@ -91,6 +123,7 @@ public class PlayerMovement : MonoBehaviour
             else if (playerMovementType == MovementType.FAC)
                 FACMovement();
 
+            CheckForCling();
             GetJumpInput();
             GetDashInput();
         }
@@ -106,12 +139,13 @@ public class PlayerMovement : MonoBehaviour
 
     private void NACMovement()
     {
-        if (Input.GetButton("Horizontal") && !isInAir)
+        if (Input.GetButton("Horizontal") && !IsInAir)
         {
             boxCollider.sharedMaterial = Moving;
-            rigidbody.velocity = new Vector2(speed * Input.GetAxis("Horizontal"), rigidbody.velocity.y);
+            if (Input.GetAxis("Horizontal") > 0 && CanMoveRight || Input.GetAxis("Horizontal") < 0 && CanMoveLeft)
+                rigidbody.velocity = new Vector2(Input.GetAxis("Horizontal") * (minRunSpeed + (maxRunSpeed - minRunSpeed) * SpeedGain), rigidbody.velocity.y);
             Vector2 velocity = rigidbody.velocity;
-            velocity.x = Mathf.Clamp(velocity.x, -maxSpeed, maxSpeed);
+            velocity.x = Mathf.Clamp(velocity.x, -maxRunSpeed, maxRunSpeed);
             rigidbody.velocity = velocity;
         }
         else
@@ -125,12 +159,15 @@ public class PlayerMovement : MonoBehaviour
         if (Input.GetButton("Horizontal"))
         {
             boxCollider.sharedMaterial = Moving;
-            if (!isInAir)
-                rigidbody.velocity = new Vector2(speed * Input.GetAxis("Horizontal"), rigidbody.velocity.y);
-            else
-                rigidbody.velocity = new Vector2(airSpeed * Input.GetAxis("Horizontal"), rigidbody.velocity.y);
+            if (Input.GetAxis("Horizontal") > 0 && CanMoveRight || Input.GetAxis("Horizontal") < 0 && CanMoveLeft)
+            {
+                if (!IsInAir)
+                    rigidbody.velocity = new Vector2(Input.GetAxis("Horizontal") * (minRunSpeed + (maxRunSpeed - minRunSpeed) * SpeedGain), rigidbody.velocity.y);
+                else
+                    rigidbody.velocity = new Vector2(Input.GetAxis("Horizontal") * airSpeed * (minRunSpeed + (maxRunSpeed - minRunSpeed) * SpeedGain), rigidbody.velocity.y);
+            }
             Vector2 velocity = rigidbody.velocity;
-            velocity.x = Mathf.Clamp(velocity.x, -maxSpeed, maxSpeed);
+            velocity.x = Mathf.Clamp(velocity.x, -maxRunSpeed, maxRunSpeed);
             rigidbody.velocity = velocity;
         }
         else
@@ -144,9 +181,10 @@ public class PlayerMovement : MonoBehaviour
         if (Input.GetButton("Horizontal"))
         {
             boxCollider.sharedMaterial = Moving;
-            rigidbody.velocity = new Vector2(speed * Input.GetAxis("Horizontal"), rigidbody.velocity.y);
+            if(Input.GetAxis("Horizontal") > 0 && CanMoveRight || Input.GetAxis("Horizontal") < 0 && CanMoveLeft)
+                rigidbody.velocity = new Vector2(Input.GetAxis("Horizontal") * (minRunSpeed + (maxRunSpeed - minRunSpeed) * SpeedGain), rigidbody.velocity.y);
             Vector2 velocity = rigidbody.velocity;
-            velocity.x = Mathf.Clamp(velocity.x, -maxSpeed, maxSpeed);
+            velocity.x = Mathf.Clamp(velocity.x, -maxRunSpeed, maxRunSpeed);
             rigidbody.velocity = velocity;
         }
         else
@@ -155,25 +193,60 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
+    private void CheckForCling()
+    {
+        if(IsClingingLeft || IsClingingRight)
+        {
+            rigidbody.gravityScale = clingGravityScale; 
+        }
+        else
+        {
+            rigidbody.gravityScale = 1;
+        }
+    }
+
     private void GetJumpInput()
     {
         if(canDoubleJump)
         {
-            if (Input.GetButtonDown("Jump") && !isInAir)
+            if (Input.GetButtonDown("Jump"))
             {
-                rigidbody.velocity = new Vector2(rigidbody.velocity.x, jumpSpeed);
-                Vector2 velocity = rigidbody.velocity;
-                velocity.y = Mathf.Clamp(velocity.y, Mathf.NegativeInfinity, maxJumpSpeed);
-                rigidbody.velocity = velocity;
-                Jumps--;
-            }
-            else if (Input.GetButtonDown("Jump") && isInAir && Jumps > 0)
-            {
-                rigidbody.velocity = new Vector2(rigidbody.velocity.x, doubleJumpSpeed);
-                Vector2 velocity = rigidbody.velocity;
-                velocity.y = Mathf.Clamp(velocity.y, Mathf.NegativeInfinity, maxJumpSpeed);
-                rigidbody.velocity = velocity;
-                Jumps = 0;
+                if (IsClingingLeft)
+                {
+                    Jumps = maxJumps;
+                    rigidbody.velocity = new Vector2(wallJumpHorizontalSpeed, doubleJumpSpeed);
+                    Vector2 velocity = rigidbody.velocity;
+                    velocity.y = Mathf.Clamp(velocity.y, Mathf.NegativeInfinity, maxJumpSpeed);
+                    rigidbody.velocity = velocity;
+                    StartCoroutine("PreventLeftMovement");
+                    Jumps--;
+                }
+                else if (IsClingingRight)
+                {
+                    Jumps = maxJumps;
+                    rigidbody.velocity = new Vector2(-wallJumpHorizontalSpeed, doubleJumpSpeed);
+                    Vector2 velocity = rigidbody.velocity;
+                    velocity.y = Mathf.Clamp(velocity.y, Mathf.NegativeInfinity, maxJumpSpeed);
+                    rigidbody.velocity = velocity;
+                    StartCoroutine("PreventRightMovement");
+                    Jumps--;
+                }
+                else if (!IsInAir)
+                {
+                    rigidbody.velocity = new Vector2(rigidbody.velocity.x, jumpSpeed);
+                    Vector2 velocity = rigidbody.velocity;
+                    velocity.y = Mathf.Clamp(velocity.y, Mathf.NegativeInfinity, maxJumpSpeed);
+                    rigidbody.velocity = velocity;
+                    Jumps--;
+                }
+                else if (IsInAir && Jumps > 0)
+                {
+                    rigidbody.velocity = new Vector2(rigidbody.velocity.x, doubleJumpSpeed);
+                    Vector2 velocity = rigidbody.velocity;
+                    velocity.y = Mathf.Clamp(velocity.y, Mathf.NegativeInfinity, maxJumpSpeed);
+                    rigidbody.velocity = velocity;
+                    Jumps--;
+                }
             }
             if (Input.GetButtonUp("Jump") && rigidbody.velocity.y > 0)
             {
@@ -182,7 +255,7 @@ public class PlayerMovement : MonoBehaviour
         }
         else
         {
-            if (Input.GetButtonDown("Jump") && !isInAir)
+            if (Input.GetButtonDown("Jump") && !IsInAir)
             {
                 rigidbody.velocity = new Vector2(rigidbody.velocity.x, jumpSpeed);
                 Vector2 velocity = rigidbody.velocity;
@@ -200,12 +273,12 @@ public class PlayerMovement : MonoBehaviour
     {
         if(CanDash)
         {
-            if (Input.GetButtonDown("DashLeft"))
+            if (Input.GetButtonDown("DashLeft") && !IsClingingLeft)
             {
                 dashType = DashType.Left;
                 StartCoroutine("Dash");
             }
-            else if(Input.GetButtonDown("DashRight"))
+            else if(Input.GetButtonDown("DashRight") && !IsClingingRight)
             {
                 dashType = DashType.Right;
                 StartCoroutine("Dash");
@@ -234,14 +307,6 @@ public class PlayerMovement : MonoBehaviour
             if(dashType == DashType.Left && Input.GetButtonDown("DashRight") || dashType == DashType.Right && Input.GetButtonDown("DashLeft"))
             {
                 rigidbody.velocity = new Vector2(0, 0);
-                //if(dashType == DashType.Left && Input.GetButtonDown("DashRight") || dashType == DashType.Right && Input.GetButtonDown("DashLeft"))
-                //{
-                //    if (dashType == DashType.Left)
-                //        rigidbody.velocity = Vector2.right * dashSpeed;
-                //    else if (dashType == DashType.Right)
-                //        rigidbody.velocity = Vector2.left * dashSpeed;
-                //    yield return new WaitForSeconds(timer);
-                //}
                 break;
             }
             yield return null;
@@ -252,5 +317,19 @@ public class PlayerMovement : MonoBehaviour
         rigidbody.gravityScale = 1;
         yield return new WaitForSeconds(dashCooldown);
         CanDash = true;
+    }
+
+    private IEnumerator PreventLeftMovement()
+    {
+        CanMoveLeft = false;
+        yield return new WaitForSeconds(wallJumpRecoveryTime);
+        CanMoveLeft = true;
+    }
+
+    private IEnumerator PreventRightMovement()
+    {
+        CanMoveRight = false;
+        yield return new WaitForSeconds(wallJumpRecoveryTime);
+        CanMoveRight = true;
     }
 }
