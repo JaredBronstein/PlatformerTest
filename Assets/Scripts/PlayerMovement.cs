@@ -43,6 +43,9 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField]
     private float wallJumpHorizontalSpeed;
 
+    [SerializeField]
+    private float climbSpeed;
+
     [Header("Dash Values")]
     [SerializeField]
     private float dashSpeed;
@@ -70,7 +73,7 @@ public class PlayerMovement : MonoBehaviour
     private static int maxJumps = 2;
 
     [SerializeField]
-    private float wallJumpRecoveryTime;
+    private float wallJumpRecoveryTime, ladderRecoveryTime;
 
     [SerializeField]
     private PhysicsMaterial2D Moving;
@@ -82,10 +85,11 @@ public class PlayerMovement : MonoBehaviour
     private Rigidbody2D rigidbody;
     private BoxCollider2D boxCollider;
     private GroundCheck groundCheck;
+    private LadderCheck[] ladderChecks = new LadderCheck[2];
 
     private DashType dashType;
 
-    private bool IsInAir, IsClingingLeft, IsClingingRight, CanMoveLeft = true, CanMoveRight = true, CanMove = true, CanDash = true, FacingRight = true;
+    private bool IsInAir, IsClingingLeft, IsClingingRight, CanMoveLeft = true, CanMoveRight = true, CanMove = true, CanClimb = true, CanDash = true, FacingRight = true, OnLadder = false;
     private int Jumps = maxJumps;
     private float SpeedGain = 0;
 
@@ -94,6 +98,7 @@ public class PlayerMovement : MonoBehaviour
         rigidbody = GetComponent<Rigidbody2D>();
         boxCollider = GetComponent<BoxCollider2D>();
         groundCheck = FindObjectOfType<GroundCheck>();
+        ladderChecks = FindObjectsOfType<LadderCheck>();
     }
 
     void Update()
@@ -105,6 +110,8 @@ public class PlayerMovement : MonoBehaviour
         {
             Jumps = maxJumps;
         }
+        if (!ladderChecks[0].isTouchingLadder && !ladderChecks[1].isTouchingLadder)
+            OnLadder = false;
         if (Input.GetAxisRaw("Horizontal") == 0 || IsClingingLeft || IsClingingRight)
             SpeedGain = 0;
         else if (SpeedGain == 1)
@@ -116,16 +123,42 @@ public class PlayerMovement : MonoBehaviour
         HandleDirection();
         if(CanMove)
         {
-            if (playerMovementType == MovementType.NAC)
-                NACMovement();
-            else if (playerMovementType == MovementType.LAC)
-                LACMovement();
-            else if (playerMovementType == MovementType.FAC)
-                FACMovement();
+            if (!OnLadder)
+            {
+                if (playerMovementType == MovementType.NAC)
+                    NACMovement();
+                else if (playerMovementType == MovementType.LAC)
+                    LACMovement();
+                else if (playerMovementType == MovementType.FAC)
+                    FACMovement();
 
-            CheckForCling();
+                CheckForCling();
+                GetJumpInput();
+                GetDashInput();
+            }
+            else
+                LadderInput();
+        }
+    }
+
+    public void LadderInput()
+    {
+        if(Input.GetButton("Vertical"))
+        {
+            rigidbody.velocity = new Vector2(0, Input.GetAxis("Vertical") * climbSpeed);
+        }
+        else
+        {
+            rigidbody.velocity = new Vector2(0, 0);
+        }
+        if (Input.GetButtonDown("Horizontal"))
+        {
+            ChangeLadderState(false);
+        }
+        else if (Input.GetButtonDown("Jump"))
+        {
+            ChangeLadderState(false);
             GetJumpInput();
-            GetDashInput();
         }
     }
 
@@ -199,7 +232,7 @@ public class PlayerMovement : MonoBehaviour
         {
             rigidbody.gravityScale = clingGravityScale; 
         }
-        else
+        else if(!OnLadder)
         {
             rigidbody.gravityScale = 1;
         }
@@ -286,6 +319,22 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
+    private void ChangeLadderState(bool gettingOn)
+    {
+        if(gettingOn)
+        {
+            OnLadder = true;
+            rigidbody.velocity = new Vector2(0, 0);
+            rigidbody.gravityScale = 0;
+            Jumps = maxJumps;
+        }
+        else
+        {
+            OnLadder = false;
+            rigidbody.gravityScale = 1;
+        }
+    }
+
     private IEnumerator Dash()
     {
         CanMove = false;
@@ -332,4 +381,30 @@ public class PlayerMovement : MonoBehaviour
         yield return new WaitForSeconds(wallJumpRecoveryTime);
         CanMoveRight = true;
     }
+
+    private IEnumerator PreventClimb()
+    {
+        CanClimb = false;
+        yield return new WaitForSeconds(ladderRecoveryTime);
+        CanClimb = true;
+    }
+
+    private void OnTriggerEnter2D(Collider2D collision)
+    {
+        //If the player attempts to get on the ladder, lock em on it and turn off gravity
+        if(collision.gameObject.tag == "Ladder" && Input.GetAxisRaw("Vertical") == 1 && CanClimb)
+        {
+            StartCoroutine("PreventClimb");
+            rigidbody.position = new Vector2(collision.transform.position.x, rigidbody.position.y);
+            ChangeLadderState(true);
+        }
+    }
+    private void OnTriggerExit2D(Collider2D collision)
+    {
+        if(collision.gameObject.tag == "Ladder" && OnLadder)
+        {
+            ChangeLadderState(false);
+        }
+    }
+
 }

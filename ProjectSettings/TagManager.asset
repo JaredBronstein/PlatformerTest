@@ -6,6 +6,7 @@ TagManager:
   tags:
   - Environment
   - Wall Jump
+  - Ladder
   layers:
   - Default
   - TransparentFX
